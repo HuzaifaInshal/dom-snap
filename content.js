@@ -268,7 +268,12 @@
         dataUrl = res.dataUrl;
 
         if (fmt === 'favicon') {
-          dataUrl = await encodeICO(dataUrl);
+          loading.classList.remove('ds-show');
+          flashSuccess('Saving favicon bundle…');
+          await doFaviconBundle(dataUrl);
+          flashSuccess('All 6 files saved!');
+          setTimeout(() => { selectedEl = null; hidePanel(); }, 1800);
+          return;
         }
       }
 
@@ -279,10 +284,8 @@
         flashSuccess('Copied to clipboard!');
         toast('Copied to clipboard!', 'success');
       } else {
-        const ext  = fmt === 'favicon' ? 'ico' : fmt === 'svg' ? 'svg' : fmt;
-        const name = fmt === 'favicon'
-          ? 'favicon.ico'
-          : `domsnap-${Date.now()}.${ext}`;
+        const ext  = fmt === 'svg' ? 'svg' : fmt;
+        const name = `domsnap-${Date.now()}.${ext}`;
         await triggerDownload(dataUrl, name);
         flashSuccess(`Saved: ${name}`);
         setTimeout(() => { selectedEl = null; hidePanel(); }, 1600);
@@ -329,9 +332,46 @@
     for (let i = 0; i < len; i++) apply(srcKids[i], tgtKids[i]);
   }
 
-  // Encode a proper multi-size .ico (16×16 + 32×32 PNG frames inside ICO container)
-  async function encodeICO(dataUrl) {
-    const sizes = [16, 32];
+  // ─── Favicon bundle ──────────────────────────────────────────────────────────
+  async function doFaviconBundle(dataUrl) {
+    const files = [
+      ['favicon.ico',                    () => encodeICO(dataUrl, [16, 32, 48])],
+      ['favicon-96x96.png',              () => resizeToPNG(dataUrl, 96)],
+      ['apple-touch-icon.png',           () => resizeToPNG(dataUrl, 180)],
+      ['favicon.svg',                    () => encodeEmbeddedSVG(dataUrl)],
+      ['web-app-manifest-192x192.png',   () => resizeToPNG(dataUrl, 192)],
+      ['web-app-manifest-512x512.png',   () => resizeToPNG(dataUrl, 512)],
+    ];
+    for (const [name, generate] of files) {
+      const url = await generate();
+      await triggerDownload(url, name);
+      await new Promise(r => setTimeout(r, 350)); // stagger so browser processes each
+    }
+  }
+
+  async function resizeToPNG(dataUrl, size) {
+    const buf = await resizeToPNGBuffer(dataUrl, size);
+    const u8  = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < u8.length; i += 8192) {
+      binary += String.fromCharCode(...u8.subarray(i, i + 8192));
+    }
+    return `data:image/png;base64,${btoa(binary)}`;
+  }
+
+  function encodeEmbeddedSVG(dataUrl) {
+    // SVG favicon that embeds the PNG — renders crisply at all sizes
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><image href="${dataUrl}" width="512" height="512" preserveAspectRatio="xMidYMid slice"/></svg>`;
+    const u8  = new TextEncoder().encode(svg);
+    let binary = '';
+    for (let i = 0; i < u8.length; i += 8192) {
+      binary += String.fromCharCode(...u8.subarray(i, i + 8192));
+    }
+    return `data:image/svg+xml;base64,${btoa(binary)}`;
+  }
+
+  // Encode a proper multi-size .ico (PNG frames inside ICO container)
+  async function encodeICO(dataUrl, sizes = [16, 32, 48]) {
     const pngBuffers = await Promise.all(sizes.map(s => resizeToPNGBuffer(dataUrl, s)));
 
     // ICO binary layout: 6-byte ICONDIR + 16-byte ICONDIRENTRY per image + PNG data
@@ -716,7 +756,7 @@
       <span class="ds-fmt-icon">✦</span>
       <span class="ds-fmt-label">SVG</span>
     </button>
-    <button class="ds-fmt" data-fmt="favicon" title="Download favicon.ico (16×16 + 32×32)">
+    <button class="ds-fmt" data-fmt="favicon" title="Download full favicon bundle (6 files)">
       <span class="ds-fmt-icon">⭐</span>
       <span class="ds-fmt-label">ICO</span>
     </button>
