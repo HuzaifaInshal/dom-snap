@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=320">
+  <title>DomSnap</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo-wrap">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M3 7.5 L3 3 L7.5 3"   stroke="#a78bfa" stroke-width="2"   stroke-linecap="round" fill="none"/>
+        <path d="M16.5 3 L21 3 L21 7.5" stroke="#a78bfa" stroke-width="2"   stroke-linecap="round" fill="none"/>
+        <path d="M21 16.5 L21 21 L16.5 21" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <path d="M7.5 21 L3 21 L3 16.5"   stroke="#a78bfa" stroke-width="2"  stroke-linecap="round" fill="none"/>
+        <circle cx="12" cy="12" r="2.2" fill="#c4b5fd"/>
+        <line x1="12" y1="7.5"  x2="12" y2="9.4"  stroke="#c4b5fd" stroke-width="1.6" stroke-linecap="round"/>
+        <line x1="12" y1="14.6" x2="12" y2="16.5" stroke="#c4b5fd" stroke-width="1.6" stroke-linecap="round"/>
+        <line x1="7.5"  y1="12" x2="9.4"  y2="12" stroke="#c4b5fd" stroke-width="1.6" stroke-linecap="round"/>
+        <line x1="14.6" y1="12" x2="16.5" y2="12" stroke="#c4b5fd" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="header-text">
+      <h1>DomSnap</h1>
+      <p>Element inspector &amp; exporter</p>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="status-left">
+      <div class="dot" id="dot"></div>
+      <span class="status-text" id="status-text">Inactive</span>
+    </div>
+    <span class="shortcut">ESC to stop</span>
+  </div>
+
+  <!-- Toggle button -->
+  <div class="btn-wrap">
+    <button class="btn-toggle start" id="btn-toggle">
+      <span class="btn-icon">⊹</span>
+      <span id="btn-label">Start Inspection</span>
+    </button>
+  </div>
+
+  <!-- Tips -->
+  <div class="tips">
+    <div class="tips-title">How it works</div>
+    <div class="tip">
+      <div class="tip-num">1</div>
+      <div class="tip-text"><strong>Hover</strong> over any element — it highlights with a purple outline.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-num">2</div>
+      <div class="tip-text"><strong>Click</strong> the element to select it and open the action panel.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-num">3</div>
+      <div class="tip-text">Choose <strong>PNG, JPG, SVG, Favicon</strong> to save, or copy to clipboard.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-num">4</div>
+      <div class="tip-text">Press <strong>ESC</strong> to close the panel or exit inspection mode.</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span class="footer-brand">DomSnap</span>
+    <span class="footer-ver">v1.0.0</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
