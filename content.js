@@ -268,7 +268,7 @@
         dataUrl = res.dataUrl;
 
         if (fmt === 'favicon') {
-          dataUrl = await resizeImage(dataUrl, 32, 32);
+          dataUrl = await encodeICO(dataUrl);
         }
       }
 
@@ -279,9 +279,9 @@
         flashSuccess('Copied to clipboard!');
         toast('Copied to clipboard!', 'success');
       } else {
-        const ext = fmt === 'favicon' ? 'png' : fmt === 'svg' ? 'svg' : fmt;
+        const ext  = fmt === 'favicon' ? 'ico' : fmt === 'svg' ? 'svg' : fmt;
         const name = fmt === 'favicon'
-          ? 'favicon.png'
+          ? 'favicon.ico'
           : `domsnap-${Date.now()}.${ext}`;
         await triggerDownload(dataUrl, name);
         flashSuccess(`Saved: ${name}`);
@@ -329,14 +329,58 @@
     for (let i = 0; i < len; i++) apply(srcKids[i], tgtKids[i]);
   }
 
-  function resizeImage(dataUrl, w, h) {
+  // Encode a proper multi-size .ico (16×16 + 32×32 PNG frames inside ICO container)
+  async function encodeICO(dataUrl) {
+    const sizes = [16, 32];
+    const pngBuffers = await Promise.all(sizes.map(s => resizeToPNGBuffer(dataUrl, s)));
+
+    // ICO binary layout: 6-byte ICONDIR + 16-byte ICONDIRENTRY per image + PNG data
+    const DIR_HEADER  = 6;
+    const ENTRY_SIZE  = 16;
+    const dataStart   = DIR_HEADER + ENTRY_SIZE * sizes.length;
+    const totalBytes  = dataStart + pngBuffers.reduce((n, b) => n + b.byteLength, 0);
+
+    const buf  = new ArrayBuffer(totalBytes);
+    const view = new DataView(buf);
+    const u8   = new Uint8Array(buf);
+
+    // ICONDIR
+    view.setUint16(0, 0, true); // reserved
+    view.setUint16(2, 1, true); // type: 1 = ICO
+    view.setUint16(4, sizes.length, true);
+
+    // ICONDIRENTRY + copy PNG frames
+    let writeAt = dataStart;
+    sizes.forEach((sz, i) => {
+      const e = DIR_HEADER + i * ENTRY_SIZE;
+      view.setUint8 (e,      sz);                        // width  (0 = 256)
+      view.setUint8 (e + 1,  sz);                        // height
+      view.setUint8 (e + 2,  0);                         // colorCount
+      view.setUint8 (e + 3,  0);                         // reserved
+      view.setUint16(e + 4,  1,                   true); // planes
+      view.setUint16(e + 6,  32,                  true); // bitCount
+      view.setUint32(e + 8,  pngBuffers[i].byteLength, true); // size
+      view.setUint32(e + 12, writeAt,             true); // offset
+      u8.set(new Uint8Array(pngBuffers[i]), writeAt);
+      writeAt += pngBuffers[i].byteLength;
+    });
+
+    // Convert ArrayBuffer → data URL
+    let binary = '';
+    for (let i = 0; i < u8.length; i += 8192) {
+      binary += String.fromCharCode(...u8.subarray(i, i + 8192));
+    }
+    return `data:image/x-icon;base64,${btoa(binary)}`;
+  }
+
+  function resizeToPNGBuffer(dataUrl, size) {
     return new Promise(resolve => {
       const img = new Image();
       img.onload = () => {
         const c = document.createElement('canvas');
-        c.width = w; c.height = h;
-        c.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(c.toDataURL('image/png'));
+        c.width = c.height = size;
+        c.getContext('2d').drawImage(img, 0, 0, size, size);
+        c.toBlob(blob => blob.arrayBuffer().then(resolve), 'image/png');
       };
       img.src = dataUrl;
     });
@@ -672,7 +716,7 @@
       <span class="ds-fmt-icon">✦</span>
       <span class="ds-fmt-label">SVG</span>
     </button>
-    <button class="ds-fmt" data-fmt="favicon" title="Download 32×32 favicon PNG">
+    <button class="ds-fmt" data-fmt="favicon" title="Download favicon.ico (16×16 + 32×32)">
       <span class="ds-fmt-icon">⭐</span>
       <span class="ds-fmt-label">ICO</span>
     </button>
