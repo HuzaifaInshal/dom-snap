@@ -145,8 +145,6 @@
         dataUrl = await DS.exportSVG(el);
       } else {
         if (!el.isConnected) throw new Error('Element was removed from the page — please re-select.');
-        if (DS.hlBox)   DS.hlBox.style.setProperty('display', 'none', 'important');
-        if (DS.hlLabel) DS.hlLabel.style.setProperty('display', 'none', 'important');
         DS.panelHost.style.visibility = 'hidden';
 
         const canvas = await DS.captureElementCanvas(el);
@@ -161,7 +159,7 @@
           DS.flashSuccess('Building favicon.zip…');
           await DS.doFaviconBundle(dataUrl);
           DS.flashSuccess('favicon.zip downloaded!');
-          setTimeout(() => { DS.selectedEl = null; DS.hidePanel(); }, 1800);
+          setTimeout(() => { DS.selectedEl = null; DS.hidePanel(); DS.reattachOverlays(); }, 1800);
           return;
         }
       }
@@ -172,13 +170,13 @@
         await DS.writeClipboard(dataUrl);
         DS.flashSuccess('Copied to clipboard!');
         DS.toast('Copied to clipboard!', 'success');
-        setTimeout(() => { DS.selectedEl = null; DS.hidePanel(); }, 1600);
+        setTimeout(() => { DS.selectedEl = null; DS.hidePanel(); DS.reattachOverlays(); }, 1600);
       } else {
         const ext  = fmt === 'svg' ? 'svg' : fmt;
         const name = `domsnap-${Date.now()}.${ext}`;
         await DS.triggerDownload(dataUrl, name);
         DS.flashSuccess(`Saved: ${name}`);
-        setTimeout(() => { DS.selectedEl = null; DS.hidePanel(); }, 1600);
+        setTimeout(() => { DS.selectedEl = null; DS.hidePanel(); DS.reattachOverlays(); }, 1600);
       }
     } catch (err) {
       loading.classList.remove('ds-show');

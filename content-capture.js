@@ -13,6 +13,11 @@
 
   DS.captureElementCanvas = async function (el) {
     if (el.tagName === 'IMG') return DS.captureImgElement(el);
+
+    // SVG elements rendered via html2canvas composite the parent background behind them.
+    // Serialize the SVG directly to an image instead — gives a clean transparent render.
+    if (el.tagName === 'SVG' || el.tagName === 'svg') return DS.captureSvgElement(el);
+
     if (DS.h2c) {
       const reattach = DS.detachOverlays();
       const restore  = DS.patchUnsupportedColors(el);
@@ -28,6 +33,30 @@
       }
     }
     return DS.screenshotFallback(el);
+  };
+
+  DS.captureSvgElement = function (el) {
+    const r      = el.getBoundingClientRect();
+    const w      = Math.round(r.width  || el.width.baseVal.value  || 100);
+    const h      = Math.round(r.height || el.height.baseVal.value || 100);
+    const serial = new XMLSerializer().serializeToString(el);
+    const blob   = new Blob([serial], { type: 'image/svg+xml;charset=utf-8' });
+    const url    = URL.createObjectURL(blob);
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const c   = document.createElement('canvas');
+        c.width   = w * 2;   // 2× for sharpness
+        c.height  = h * 2;
+        const ctx = c.getContext('2d');
+        ctx.scale(2, 2);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(c);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); DS.screenshotFallback(el).then(resolve).catch(reject); };
+      img.src = url;
+    });
   };
 
   DS.captureImgElement = async function (el) {
@@ -175,6 +204,15 @@
 
   DS.capturePreview = async function (el) {
     if (el.tagName === 'IMG' && el.src) return el.src;
+
+    // SVG: use the same direct serialization path to avoid parent background bleed
+    if (el.tagName === 'SVG' || el.tagName === 'svg') {
+      try {
+        const c = await DS.captureSvgElement(el);
+        return c.toDataURL('image/png');
+      } catch (_) {}
+    }
+
     if (DS.h2c) {
       const reattach = DS.detachOverlays();
       const restore  = DS.patchUnsupportedColors(el);
