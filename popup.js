@@ -45,7 +45,7 @@ btn.addEventListener('click', async () => {
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ['content.js']
+        files: ['html2canvas.min.js', 'content.js']
       });
       await chrome.scripting.insertCSS({
         target: { tabId: tab.id },

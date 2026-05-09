@@ -6,6 +6,12 @@
   if (window.__domSnapInit) return;
   window.__domSnapInit = true;
 
+  // Capture html2canvas reference at init time — it's injected via manifest content_scripts
+  // before this script. Using globalThis avoids any 'use strict' scope lookup ambiguity.
+  const _h2c = typeof globalThis.html2canvas === 'function'
+    ? globalThis.html2canvas
+    : typeof html2canvas === 'function' ? html2canvas : null;
+
   // ─── State ────────────────────────────────────────────────────────────────
   let active = false;
   let hoveredEl = null;
@@ -13,7 +19,6 @@
   let hlBox = null;
   let hlLabel = null;
   let panelHost = null;
-
   // ─── Message bridge ───────────────────────────────────────────────────────
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg.action === 'toggle') {
@@ -59,14 +64,18 @@
     moveHighlight(hoveredEl);
   }
 
-  function onSelect(e) {
+  async function onSelect(e) {
     if (!active || isOwn(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
-    selectedEl = e.target;
+    const el = e.target;
+    selectedEl = el;
     hlBox.style.setProperty('display', 'none', 'important');
     hlLabel.style.setProperty('display', 'none', 'important');
-    showPanel(selectedEl);
+    // Capture preview while element is clean — panel not yet open, no flicker
+    const previewUrl = await capturePreview(el);
+    if (selectedEl !== el) return; // user selected something else meanwhile
+    showPanel(el, previewUrl);
   }
 
   function onKey(e) {
@@ -126,7 +135,7 @@
   }
 
   // ─── Panel (Shadow DOM) ───────────────────────────────────────────────────
-  function showPanel(el) {
+  function showPanel(el, previewUrl) {
     if (!panelHost) buildPanel();
 
     const r   = el.getBoundingClientRect();
@@ -141,6 +150,17 @@
     shadow.querySelector('.ds-el-size').textContent =
       `${Math.round(r.width)} × ${Math.round(r.height)} px`;
 
+    const previewImg  = shadow.getElementById('ds-preview-img');
+    const previewSpin = shadow.getElementById('ds-preview-spinner');
+    if (previewUrl) {
+      previewImg.src = previewUrl;
+      previewImg.style.display  = 'block';
+      previewSpin.style.display = 'none';
+    } else {
+      previewImg.style.display  = 'none';
+      previewSpin.style.display = 'none';
+    }
+
     placePanel(r);
     panelHost.style.display = 'block';
     requestAnimationFrame(() => {
@@ -150,12 +170,20 @@
 
   function hidePanel() {
     if (!panelHost) return;
-    panelHost.shadowRoot.querySelector('.ds-panel').classList.remove('ds-open');
-    setTimeout(() => { if (panelHost) panelHost.style.display = 'none'; }, 220);
+    const shadow = panelHost.shadowRoot;
+    shadow.querySelector('.ds-panel').classList.remove('ds-open');
+    setTimeout(() => {
+      if (!panelHost) return;
+      panelHost.style.display = 'none';
+      const img = shadow.getElementById('ds-preview-img');
+      if (img) { img.src = ''; img.style.display = 'none'; }
+      const spin = shadow.getElementById('ds-preview-spinner');
+      if (spin) spin.style.display = 'none';
+    }, 220);
   }
 
   function placePanel(elRect) {
-    const W = 300, H = 250, GAP = 14;
+    const W = 300, H = 380, GAP = 14;
     const vw = window.innerWidth, vh = window.innerHeight;
     let l, t;
 
@@ -248,14 +276,7 @@
         if (hlLabel) hlLabel.style.setProperty('display', 'none', 'important');
         panelHost.style.visibility = 'hidden';
 
-        const canvas = await html2canvas(el, {
-          scale: 2,
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
-          backgroundColor: null,
-        });
-
+        const canvas = await captureElementCanvas(el);
         panelHost.style.visibility = '';
 
         dataUrl = fmt === 'jpg'
@@ -278,6 +299,7 @@
         await writeClipboard(dataUrl);
         flashSuccess('Copied to clipboard!');
         toast('Copied to clipboard!', 'success');
+        setTimeout(() => { selectedEl = null; hidePanel(); }, 1600);
       } else {
         const ext  = fmt === 'svg' ? 'svg' : fmt;
         const name = `domsnap-${Date.now()}.${ext}`;
@@ -291,6 +313,158 @@
       console.error('[DomSnap]', err);
       toast(err.message, 'error');
     }
+  }
+
+  // Temporarily removes DomSnap overlays from the DOM so html2canvas can't pick them
+  // up — even position:fixed / display:none elements in the document can bleed in.
+  function detachOverlays() {
+    const removed = [];
+    for (const el of [hlBox, hlLabel]) {
+      if (el && el.parentNode) { el.parentNode.removeChild(el); removed.push(el); }
+    }
+    return () => removed.forEach(el => document.documentElement.appendChild(el));
+  }
+
+  // ─── html2canvas wrapper — patches modern CSS colors before rendering ────────
+  async function captureElementCanvas(el) {
+    if (el.tagName === 'IMG') return captureImgElement(el);
+
+    if (_h2c) {
+      const reattach = detachOverlays();
+      const restore  = patchUnsupportedColors(el);
+      try {
+        const canvas = await _h2c(el, {
+          scale: 2, useCORS: true, allowTaint: true, logging: false, backgroundColor: null,
+        });
+        restore(); reattach();
+        return canvas;
+      } catch (e) {
+        restore(); reattach();
+        console.warn('[DomSnap] html2canvas failed, using screenshot fallback:', e.message);
+      }
+    }
+    return screenshotFallback(el);
+  }
+
+  async function captureImgElement(el) {
+    const src = el.currentSrc || el.src;
+    if (!src) return screenshotFallback(el);
+
+    let dataUrl = src.startsWith('data:') ? src : null;
+
+    if (!dataUrl) {
+      try {
+        const res = await chrome.runtime.sendMessage({ action: 'fetchImage', url: src });
+        if (res.success) dataUrl = res.dataUrl;
+      } catch (_) {}
+    }
+
+    if (dataUrl) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const w = img.naturalWidth  || img.width;
+          const h = img.naturalHeight || img.height;
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0);
+          resolve(c);
+        };
+        img.onerror = () => screenshotFallback(el).then(resolve).catch(reject);
+        img.src = dataUrl;
+      });
+    }
+
+    return screenshotFallback(el);
+  }
+
+  // Resolve oklch / oklab / lch / lab colors to rgb via canvas fillStyle
+  // (the browser does the color-math; html2canvas's own parser can't).
+  function patchUnsupportedColors(root) {
+    const tmp = document.createElement('canvas');
+    tmp.width = tmp.height = 1;
+    const ctx = tmp.getContext('2d');
+
+    function resolveColor(val) {
+      if (!val) return null;
+      const low = val.toLowerCase();
+      if (!low.includes('oklch') && !low.includes('oklab') &&
+          !low.includes('lch(')  && !low.includes('lab('))  return null;
+      try {
+        ctx.fillStyle = '#000';
+        ctx.fillStyle = val;
+        const rgb = ctx.fillStyle;
+        return rgb !== '#000000' ? rgb : null;
+      } catch (_) { return null; }
+    }
+
+    function resolveInString(str) {
+      if (!str) return null;
+      const low = str.toLowerCase();
+      if (!low.includes('oklch') && !low.includes('oklab') &&
+          !low.includes('lch(')  && !low.includes('lab('))  return null;
+      const patched = str.replace(/(oklch|oklab|lch|lab)\([^)]*\)/gi, m => resolveColor(m) || m);
+      return patched !== str ? patched : null;
+    }
+
+    const SOLID = [
+      'color', 'background-color',
+      'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
+      'outline-color', 'text-decoration-color', 'caret-color', 'fill', 'stroke',
+    ];
+    const STR = ['background-image', 'box-shadow', 'text-shadow'];
+
+    const patches = [];
+    for (const el of [root, ...root.querySelectorAll('*')]) {
+      const cs = getComputedStyle(el);
+      const saved = {};
+      let hit = false;
+
+      for (const p of SOLID) {
+        const resolved = resolveColor(cs.getPropertyValue(p));
+        if (resolved) { saved[p] = el.style.getPropertyValue(p); el.style.setProperty(p, resolved, 'important'); hit = true; }
+      }
+      for (const p of STR) {
+        const resolved = resolveInString(cs.getPropertyValue(p));
+        if (resolved) { saved[p] = el.style.getPropertyValue(p); el.style.setProperty(p, resolved, 'important'); hit = true; }
+      }
+
+      if (hit) patches.push({ el, saved });
+    }
+
+    return function restore() {
+      for (const { el, saved } of patches) {
+        for (const [p, orig] of Object.entries(saved)) {
+          if (orig) el.style.setProperty(p, orig);
+          else      el.style.removeProperty(p);
+        }
+      }
+    };
+  }
+
+  async function screenshotFallback(el) {
+    await waitFrames(2); // let visibility:hidden paint before screenshot
+    const r   = el.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const rw  = r.width  > 0 ? r.width  : (el.offsetWidth  || 1);
+    const rh  = r.height > 0 ? r.height : (el.offsetHeight || 1);
+    const res = await chrome.runtime.sendMessage({
+      action: 'captureTab',
+      rect: { x: r.left, y: r.top, width: rw, height: rh },
+      scale: dpr, format: 'png',
+    });
+    if (!res.success) throw new Error(res.error || 'Screenshot failed');
+    // Return a canvas so the caller can call toDataURL with any format
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        c.getContext('2d').drawImage(img, 0, 0);
+        resolve(c);
+      };
+      img.src = res.dataUrl;
+    });
   }
 
   async function exportSVG(el) {
@@ -567,6 +741,38 @@
     setTimeout(() => el.classList.remove('ds-show'), 2000);
   }
 
+  async function capturePreview(el) {
+    // <img>: display the element's src directly in the preview <img> tag — no rendering needed
+    if (el.tagName === 'IMG' && el.src) return el.src;
+
+    if (_h2c) {
+      const reattach = detachOverlays();
+      const restore  = patchUnsupportedColors(el);
+      try {
+        const canvas = await _h2c(el, {
+          scale: 1, useCORS: true, allowTaint: true, logging: false, backgroundColor: null,
+        });
+        restore(); reattach();
+        return canvas.toDataURL('image/png');
+      } catch (_) { restore(); reattach(); }
+    }
+
+    // Screenshot fallback — panel not yet shown, element is fully visible, zero flicker
+    await waitFrames(1);
+    const r   = el.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    try {
+      const res = await chrome.runtime.sendMessage({
+        action: 'captureTab',
+        rect: { x: r.left, y: r.top, width: Math.max(1, r.width), height: Math.max(1, r.height) },
+        scale: dpr, format: 'png',
+      });
+      if (res.success) return res.dataUrl;
+    } catch (_) {}
+
+    return null;
+  }
+
   // ─── Toast ────────────────────────────────────────────────────────────────
   function toast(msg, type = 'info') {
     const existing = document.getElementById('domsnap-toast');
@@ -777,6 +983,38 @@
     color: #7dd3fc;
   }
 
+  /* ── Preview (inline section above Export As) ── */
+  #ds-preview {
+    margin: 0 12px 8px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.07);
+    background: repeating-conic-gradient(rgba(255,255,255,0.035) 0% 25%, transparent 0% 50%) 0 0 / 10px 10px;
+    min-height: 72px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #ds-preview-spinner {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 100%; height: 72px;
+  }
+  .ds-mini-spin {
+    width: 20px; height: 20px;
+    border: 2px solid rgba(167,139,250,0.18);
+    border-top-color: #a78bfa;
+    border-radius: 50%;
+    animation: ds-spin 0.65s linear infinite;
+  }
+  #ds-preview-img {
+    max-width: 100%;
+    max-height: 140px;
+    object-fit: contain;
+    display: block;
+  }
+
   /* ── Loading ── */
   #ds-loading {
     display: none;
@@ -850,6 +1088,13 @@
   <div class="ds-info">
     <div class="ds-el-name"></div>
     <div class="ds-el-size"></div>
+  </div>
+
+  <div id="ds-preview">
+    <div id="ds-preview-spinner">
+      <div class="ds-mini-spin"></div>
+    </div>
+    <img id="ds-preview-img" alt="preview" style="display:none"/>
   </div>
 
   <div class="ds-sec">Export as</div>

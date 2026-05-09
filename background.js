@@ -12,6 +12,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     return false;
   }
 
+  if (msg.action === 'fetchImage') {
+    fetchImageAsDataUrl(msg.url).then(reply).catch(err => reply({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.action === 'statusChanged') {
     const tabId = sender.tab?.id;
     if (tabId == null) return;
@@ -24,6 +29,18 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     }
   }
 });
+
+async function fetchImageAsDataUrl(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
+  const blob   = await resp.blob();
+  const buffer = await blob.arrayBuffer();
+  const bytes  = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 8192)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return { success: true, dataUrl: `data:${blob.type || 'image/png'};base64,${btoa(binary)}` };
+}
 
 async function handleCapture(msg, tab) {
   const { rect, scale = 1, format = 'png' } = msg;
