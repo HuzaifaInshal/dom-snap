@@ -242,30 +242,25 @@
         if (!el.isConnected) {
           throw new Error('Element was removed from the page — please re-select.');
         }
-        const r   = el.getBoundingClientRect();
-        // getBoundingClientRect returns 0 for detached/collapsed elements — fall back to offset dimensions
-        const rw  = r.width  > 0 ? r.width  : (el.offsetWidth  || el.scrollWidth  || 1);
-        const rh  = r.height > 0 ? r.height : (el.offsetHeight || el.scrollHeight || 1);
-        const dpr = window.devicePixelRatio || 1;
 
-        // Hide DomSnap UI before capturing
-        if (hlBox)    hlBox.style.setProperty('display', 'none', 'important');
-        if (hlLabel)  hlLabel.style.setProperty('display', 'none', 'important');
-        panelHost.style.opacity = '0';
+        // Hide DomSnap overlays so they don't bleed into the render
+        if (hlBox)   hlBox.style.setProperty('display', 'none', 'important');
+        if (hlLabel) hlLabel.style.setProperty('display', 'none', 'important');
+        panelHost.style.visibility = 'hidden';
 
-        await waitFrames(2);
-
-        const res = await chrome.runtime.sendMessage({
-          action: 'captureTab',
-          rect:   { x: r.left, y: r.top, width: rw, height: rh },
-          scale:  dpr,
-          format: (fmt === 'clipboard' || fmt === 'favicon') ? 'png' : fmt
+        const canvas = await html2canvas(el, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          backgroundColor: null,
         });
 
-        panelHost.style.opacity = '1';
+        panelHost.style.visibility = '';
 
-        if (!res.success) throw new Error(res.error || 'Screenshot failed');
-        dataUrl = res.dataUrl;
+        dataUrl = fmt === 'jpg'
+          ? canvas.toDataURL('image/jpeg', 0.95)
+          : canvas.toDataURL('image/png');
 
         if (fmt === 'favicon') {
           loading.classList.remove('ds-show');
@@ -292,7 +287,7 @@
       }
     } catch (err) {
       loading.classList.remove('ds-show');
-      if (panelHost) panelHost.style.opacity = '1';
+      if (panelHost) panelHost.style.visibility = '';
       console.error('[DomSnap]', err);
       toast(err.message, 'error');
     }
