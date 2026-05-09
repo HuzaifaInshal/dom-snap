@@ -48,6 +48,11 @@
 
     DS.placePanel(r);
     DS.panelHost.style.display = 'block';
+    // Reset bg toggle to default (no-bg) on every new selection
+    DS.preserveBg = false;
+    shadow.querySelectorAll('.ds-bg-opt').forEach(o =>
+      o.classList.toggle('ds-bg-active', o.dataset.bg === 'no-bg')
+    );
     requestAnimationFrame(() => shadow.querySelector('.ds-panel').classList.add('ds-open'));
   };
 
@@ -118,6 +123,24 @@
       previewImg.style.display  = 'none';
       previewSpin.style.display = 'flex';
       const url = await DS.capturePreview(el);
+      previewSpin.style.display = 'none';
+      if (url) { previewImg.src = url; previewImg.style.display = 'block'; }
+    });
+
+    // Background toggle — flip flag and refresh preview
+    shadow.getElementById('ds-bg-toggle').addEventListener('click', async e => {
+      const opt = e.target.closest('.ds-bg-opt');
+      if (!opt || opt.classList.contains('ds-bg-active')) return;
+      DS.preserveBg = opt.dataset.bg === 'with-bg';
+      shadow.querySelectorAll('.ds-bg-opt').forEach(o =>
+        o.classList.toggle('ds-bg-active', o.dataset.bg === opt.dataset.bg)
+      );
+      if (!DS.selectedEl) return;
+      const previewImg  = shadow.getElementById('ds-preview-img');
+      const previewSpin = shadow.getElementById('ds-preview-spinner');
+      previewImg.style.display  = 'none';
+      previewSpin.style.display = 'flex';
+      const url = await DS.capturePreview(DS.selectedEl);
       previewSpin.style.display = 'none';
       if (url) { previewImg.src = url; previewImg.style.display = 'block'; }
     });
@@ -210,6 +233,44 @@
   .ds-el-name { color: #e2e8f0; font-size: 12px; font-family: 'SF Mono','Fira Code','Cascadia Code',monospace; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ds-el-size { color: rgba(255,255,255,0.35); font-size: 11px; margin-top: 2px; }
 
+  #ds-bg-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px 10px;
+  }
+  .ds-bg-opt {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 6px 4px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.09);
+    background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.4);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    transition: background 0.13s, border-color 0.13s, color 0.13s;
+    user-select: none;
+  }
+  .ds-bg-opt:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.65); }
+  .ds-bg-opt.ds-bg-active {
+    background: rgba(124,58,237,0.22);
+    border-color: rgba(167,139,250,0.45);
+    color: #c4b5fd;
+  }
+  .ds-bg-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.7;
+    flex-shrink: 0;
+  }
+
   .ds-sec { color: rgba(255,255,255,0.3); font-size: 9.5px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; padding: 10px 14px 5px; }
 
   .ds-fmts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; padding: 0 12px 12px; }
@@ -276,6 +337,15 @@
   <div id="ds-preview">
     <div id="ds-preview-spinner"><div class="ds-mini-spin"></div></div>
     <img id="ds-preview-img" alt="preview" style="display:none"/>
+  </div>
+
+  <div id="ds-bg-toggle">
+    <div class="ds-bg-opt ds-bg-active" data-bg="no-bg" title="Transparent background — strips parent colours">
+      <span class="ds-bg-dot"></span>No Background
+    </div>
+    <div class="ds-bg-opt" data-bg="with-bg" title="Preserve background — uses Chrome screenshot">
+      <span class="ds-bg-dot"></span>With Background
+    </div>
   </div>
 
   <div class="ds-sec">Export as</div>

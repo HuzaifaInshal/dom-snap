@@ -147,7 +147,12 @@
         if (!el.isConnected) throw new Error('Element was removed from the page — please re-select.');
         DS.panelHost.style.visibility = 'hidden';
 
-        const canvas = await DS.captureElementCanvas(el);
+        // preserveBg: use Chrome's captureVisibleTab screenshot (includes parent backgrounds).
+        // no-bg (default): use html2canvas / SVG serialization path (transparent-aware).
+        const canvas = DS.preserveBg
+          ? await DS.screenshotFallback(el)
+          : await DS.captureElementCanvas(el);
+
         DS.panelHost.style.visibility = '';
 
         dataUrl = fmt === 'jpg'

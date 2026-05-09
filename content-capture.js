@@ -205,7 +205,7 @@
   DS.capturePreview = async function (el) {
     if (el.tagName === 'IMG' && el.src) return el.src;
 
-    // SVG: use the same direct serialization path to avoid parent background bleed
+    // SVG: direct serialization regardless of preserveBg — SVG has no parent bg issue
     if (el.tagName === 'SVG' || el.tagName === 'svg') {
       try {
         const c = await DS.captureSvgElement(el);
@@ -213,6 +213,23 @@
       } catch (_) {}
     }
 
+    // With background: use Chrome tab screenshot (includes parent backgrounds)
+    if (DS.preserveBg) {
+      await DS.waitFrames(1);
+      const r   = el.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      try {
+        const res = await chrome.runtime.sendMessage({
+          action: 'captureTab',
+          rect: { x: r.left, y: r.top, width: Math.max(1, r.width), height: Math.max(1, r.height) },
+          scale: dpr, format: 'png',
+        });
+        if (res.success) return res.dataUrl;
+      } catch (_) {}
+      return null;
+    }
+
+    // No background: html2canvas transparent render
     if (DS.h2c) {
       const reattach = DS.detachOverlays();
       const restore  = DS.patchUnsupportedColors(el);
