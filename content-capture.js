@@ -205,10 +205,12 @@
   DS.capturePreview = async function (el) {
     if (el.tagName === 'IMG' && el.src) return el.src;
 
-    // With background: Chrome tab screenshot — hide panel first so it doesn't appear in shot
+    // Hide panel before any preview render — consistent flicker for both modes
+    if (DS.panelHost) DS.panelHost.style.visibility = 'hidden';
+    await DS.waitFrames(2);
+
+    // With background: Chrome tab screenshot
     if (DS.preserveBg) {
-      if (DS.panelHost) DS.panelHost.style.visibility = 'hidden';
-      await DS.waitFrames(2);
       const r   = el.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       try {
@@ -219,16 +221,16 @@
         });
         if (DS.panelHost) DS.panelHost.style.visibility = '';
         if (res.success) return res.dataUrl;
-      } catch (_) {
-        if (DS.panelHost) DS.panelHost.style.visibility = '';
-      }
+      } catch (_) {}
+      if (DS.panelHost) DS.panelHost.style.visibility = '';
       return null;
     }
 
-    // No background — SVG: direct serialization (transparent, no parent bg)
+    // No background — SVG: direct serialization (transparent)
     if (el.tagName === 'SVG' || el.tagName === 'svg') {
       try {
         const c = await DS.captureSvgElement(el);
+        if (DS.panelHost) DS.panelHost.style.visibility = '';
         return c.toDataURL('image/png');
       } catch (_) {}
     }
@@ -242,10 +244,10 @@
           scale: 1, useCORS: true, allowTaint: true, logging: false, backgroundColor: null,
         });
         restore(); reattach();
+        if (DS.panelHost) DS.panelHost.style.visibility = '';
         return canvas.toDataURL('image/png');
       } catch (_) { restore(); reattach(); }
     }
-    await DS.waitFrames(1);
     const r   = el.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     try {
@@ -254,8 +256,10 @@
         rect: { x: r.left, y: r.top, width: Math.max(1, r.width), height: Math.max(1, r.height) },
         scale: dpr, format: 'png',
       });
+      if (DS.panelHost) DS.panelHost.style.visibility = '';
       if (res.success) return res.dataUrl;
     } catch (_) {}
+    if (DS.panelHost) DS.panelHost.style.visibility = '';
     return null;
   };
 
