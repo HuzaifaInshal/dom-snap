@@ -20,15 +20,14 @@
 
     if (DS.h2c) {
       const reattach = DS.detachOverlays();
-      const restore  = DS.patchUnsupportedColors(el);
       try {
         const canvas = await DS.h2c(el, {
           scale: 2, useCORS: true, allowTaint: true, logging: false, backgroundColor: null,
         });
-        restore(); reattach();
+        reattach();
         return canvas;
       } catch (e) {
-        restore(); reattach();
+        reattach();
         console.warn('[DomSnap] html2canvas failed, using screenshot fallback:', e.message);
       }
     }
@@ -87,66 +86,6 @@
       });
     }
     return DS.screenshotFallback(el);
-  };
-
-  DS.patchUnsupportedColors = function (root) {
-    const tmp = document.createElement('canvas');
-    tmp.width = tmp.height = 1;
-    const ctx = tmp.getContext('2d');
-
-    function resolveColor(val) {
-      if (!val) return null;
-      const low = val.toLowerCase();
-      if (!low.includes('oklch') && !low.includes('oklab') &&
-          !low.includes('lch(')  && !low.includes('lab('))  return null;
-      try {
-        ctx.fillStyle = '#000';
-        ctx.fillStyle = val;
-        const rgb = ctx.fillStyle;
-        return rgb !== '#000000' ? rgb : null;
-      } catch (_) { return null; }
-    }
-
-    function resolveInString(str) {
-      if (!str) return null;
-      const low = str.toLowerCase();
-      if (!low.includes('oklch') && !low.includes('oklab') &&
-          !low.includes('lch(')  && !low.includes('lab('))  return null;
-      const patched = str.replace(/(oklch|oklab|lch|lab)\([^)]*\)/gi, m => resolveColor(m) || m);
-      return patched !== str ? patched : null;
-    }
-
-    const SOLID = [
-      'color', 'background-color',
-      'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
-      'outline-color', 'text-decoration-color', 'caret-color', 'fill', 'stroke',
-    ];
-    const STR = ['background-image', 'box-shadow', 'text-shadow'];
-    const patches = [];
-
-    for (const el of [root, ...root.querySelectorAll('*')]) {
-      const cs = getComputedStyle(el);
-      const saved = {};
-      let hit = false;
-      for (const p of SOLID) {
-        const resolved = resolveColor(cs.getPropertyValue(p));
-        if (resolved) { saved[p] = el.style.getPropertyValue(p); el.style.setProperty(p, resolved, 'important'); hit = true; }
-      }
-      for (const p of STR) {
-        const resolved = resolveInString(cs.getPropertyValue(p));
-        if (resolved) { saved[p] = el.style.getPropertyValue(p); el.style.setProperty(p, resolved, 'important'); hit = true; }
-      }
-      if (hit) patches.push({ el, saved });
-    }
-
-    return function restore() {
-      for (const { el, saved } of patches) {
-        for (const [p, orig] of Object.entries(saved)) {
-          if (orig) el.style.setProperty(p, orig);
-          else      el.style.removeProperty(p);
-        }
-      }
-    };
   };
 
   DS.screenshotFallback = async function (el) {
@@ -238,15 +177,14 @@
     // No background — html2canvas transparent render
     if (DS.h2c) {
       const reattach = DS.detachOverlays();
-      const restore  = DS.patchUnsupportedColors(el);
       try {
         const canvas = await DS.h2c(el, {
           scale: 1, useCORS: true, allowTaint: true, logging: false, backgroundColor: null,
         });
-        restore(); reattach();
+        reattach();
         if (DS.panelHost) DS.panelHost.style.visibility = '';
         return canvas.toDataURL('image/png');
-      } catch (_) { restore(); reattach(); }
+      } catch (_) { reattach(); }
     }
     const r   = el.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
